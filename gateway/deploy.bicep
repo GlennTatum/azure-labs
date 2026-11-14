@@ -45,6 +45,88 @@ resource connectivitySubnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-0
     }
 }
 
+// ================================================
+// BEGIN Static User Defined Routes (Alternative Option)
+// ================================================
+// The following will demonstrate utilizing User Defined Routes to configure
+// east-west communication within the Hub and Spoke Topology. If this is
+// desired, remove the Azure Route Server Configuration setup. Note, that
+// routes will no longer be dynamically learned, therefore a new route,
+// will needed to be added per each spoke added to the hub.
+
+
+
+// ================================================
+// END Static User Defined Routes (Alternative Option)
+// ================================================
+
+
+
+// ================================================
+// BEGIN Azure Route Server Configuration
+// ================================================
+// The following will demonstrate Azure Route Server to provide route injection
+// in spoke vnets.
+
+resource azRouteServerSubnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-01' = {
+    name: 'RouteServerSubnet'
+    parent: connectivityNetwork
+    properties: {
+        addressPrefix: '10.0.2.0/26'
+    }
+}
+
+resource azRouteServerPublicIp 'Microsoft.Network/publicIPAddresses@2026-03-01' = {
+    name: 'routeserver-nus-publicip'
+    location: resourceGroup().location
+    sku: {
+        name: 'Standard'
+        tier: 'Regional'
+    }
+    properties: {
+        publicIPAddressVersion: 'IPv4'
+        publicIPAllocationMethod: 'Static'
+    }
+}
+
+resource connectivityRouteServer 'Microsoft.Network/virtualHubs@2026-03-01' = {
+    name: 'routeserver-nus-rs'
+    location: resourceGroup().location
+    properties: {
+        sku: 'Standard'
+        hubRoutingPreference: 'ExpressRoute'
+    }
+}
+
+resource connectivityRouteServerIpConfig 'Microsoft.Network/virtualHubs/ipConfigurations@2026-03-01' = {
+    name: 'routeserver-nus-ipconfig'
+    parent: connectivityRouteServer
+    properties: {
+        subnet: {
+            id: azRouteServerSubnet.id
+        }
+        publicIPAddress: {
+            id: azRouteServerPublicIp.id
+        }
+    }
+}
+
+// resource connectivityRouteServerBGPPeering 'Microsoft.Network/virtualHubs/bgpConnections@2026-03-01' = {
+//     name: 'routeserver-nva-nus-bgpconnection'
+//     parent: connectivityRouteServer
+//     properties: {
+//         peerAsn: // pfsense ASN
+//         peerIp: gwNic.properties.ipConfigurations[0].properties.privateIPAddress
+//     }
+//     dependsOn: [
+//         connectivityRouteServerIpConfig
+//     ]
+// }
+
+// ================================================
+// END Azure Route Server Configuration
+// ================================================
+
 // Gateway 
 // Gateway is attached to connectivity subnet to restrict Internet NB/SB flow only to the NVA
 resource gwnsg 'Microsoft.Network/networkSecurityGroups@2025-07-01' = {
@@ -215,7 +297,7 @@ resource peerToSpokeA 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@
     properties: {
         allowForwardedTraffic: true
         allowVirtualNetworkAccess: true
-        allowGatewayTransit: false
+        allowGatewayTransit: true
         useRemoteGateways: false
         remoteVirtualNetwork: {
             id: spokeAvnet.id
@@ -223,6 +305,11 @@ resource peerToSpokeA 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@
     }
 }
 
+/*
+Virtual network peering must have Use the remote virtual network's gateway or 
+Route Server enabled on the spoke peering, so that spokes use the Route Server
+hosted in the hub. (useRemoteGateways)
+*/
 resource spokeAToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2026-03-01' = {
     name: 'peer-vnet-spoke-a-nus-vnet-connectivity-nus'
     parent: spokeAvnet
@@ -230,13 +317,17 @@ resource spokeAToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2
         allowForwardedTraffic: true
         allowVirtualNetworkAccess: true
         allowGatewayTransit: false
-        useRemoteGateways: false
+        useRemoteGateways: true
         remoteVirtualNetwork: {
             id: connectivityNetwork.id
         }
     }
+    dependsOn: [
+        peerToSpokeA
+    ]
 }
-
+// Note: A race condition can occur if AllowGatewayTransit is not enabled given 
+// useRemoteGateways is applied first. The PeerToHub MUST depend on Hub to Peer 
 
 resource spokeAvnet 'Microsoft.Network/virtualNetworks@2026-03-01' = {
     name: 'spoke-a-nus-vnet'
@@ -276,7 +367,7 @@ resource peerToSpokeB 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@
     properties: {
         allowForwardedTraffic: true
         allowVirtualNetworkAccess: true
-        allowGatewayTransit: false
+        allowGatewayTransit: true
         useRemoteGateways: false
         remoteVirtualNetwork: {
             id: spokeBvnet.id
@@ -284,6 +375,11 @@ resource peerToSpokeB 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@
     }
 }
 
+/*
+Virtual network peering must have Use the remote virtual network's gateway or 
+Route Server enabled on the spoke peering, so that spokes use the Route Server
+hosted in the hub. (useRemoteGateways)
+*/
 resource spokeBToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2026-03-01' = {
     name: 'peer-vnet-spoke-b-nus-vnet-connectivity-nus'
     parent: spokeBvnet
@@ -291,11 +387,14 @@ resource spokeBToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2
         allowForwardedTraffic: true
         allowVirtualNetworkAccess: true
         allowGatewayTransit: false
-        useRemoteGateways: false
+        useRemoteGateways: true
         remoteVirtualNetwork: {
             id: connectivityNetwork.id
         }
     }
+    dependsOn: [
+        peerToSpokeB
+    ]
 }
 
 
@@ -308,6 +407,7 @@ resource spokeBvnet 'Microsoft.Network/virtualNetworks@2026-03-01' = {
                 '10.2.0.0/21'
             ]
         }
+
     }
 }
 
@@ -325,3 +425,11 @@ resource spokeBsnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-01' = {
         defaultOutboundAccess: false
     }
 }
+
+
+// References
+// Azure Route Server: https://github.com/Azure/azure-quickstart-templates/blob/master/quickstarts/microsoft.network/route-server/main.bicep
+// Hub and Spoke: https://github.com/Azure-Samples/azure-hub-spoke/blob/main/hub-spoke/bicep/main.bicep
+// Route Injection in Spokes: https://learn.microsoft.com/en-us/azure/route-server/route-injection-in-spokes
+// Peer Route Server with Virtual Appliance: https://learn.microsoft.com/en-us/azure/route-server/peer-route-server-with-virtual-appliance
+// Gateway Transit Reference Hub & Spoke: https://learn.microsoft.com/en-us/azure/virtual-network/virtual-network-peering-overview#gateways-and-on-premises-connectivity
