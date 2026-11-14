@@ -5,6 +5,10 @@ param login string = 'pfsenseadmin'
 @secure()
 param password string
 
+// ================================================
+// Hub Configuration
+// ================================================
+
 resource fwPublicIp 'Microsoft.Network/publicIPAddresses@2026-03-01' = {
     name: 'fw-nus-publicip'
     location: resourceGroup().location
@@ -175,5 +179,149 @@ resource pfsenseVirtualAppliance 'Microsoft.Compute/virtualMachines@2026-04-01' 
             disablePasswordAuthentication: false
         }
         }
+    }
+}
+
+resource routeTabletoFW 'Microsoft.Network/routeTables@2026-03-01' = {
+    name: 'connectivity-fw-nus-rt'
+    location: resourceGroup().location
+    properties: {
+        routes: [
+            {
+                name: 'r-to-fw'
+                properties: {
+                    nextHopType: 'VirtualAppliance'
+                    // Azure Networks will match against the longest prefix match algorithm,
+                    // if the destination address is not within the VNET traffic will jump to the 0.0.0.0/0 route
+                    addressPrefix: '0.0.0.0/0'
+                    nextHopIpAddress: gwNic.properties.ipConfigurations[0].properties.privateIPAddress
+                }
+            }
+        ]
+    }
+}
+
+// ================================================
+// Spoke A Configuration
+// ================================================
+
+// Peer Hub VNET to Spoke A
+// A bidirectional peering must be configured between the Hub and the Spoke
+// - Note: This can be automated via an Azure Policy Definition to automate the peering
+// - Note: The naming convention for peerings is peer-{parent-vnet-name}-{child-vnet}
+resource peerToSpokeA 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2026-03-01' = {
+    name: 'peer-connectivity-nus-vnet-spoke-a-nus-vnet'
+    parent: connectivityNetwork
+    properties: {
+        allowForwardedTraffic: true
+        allowVirtualNetworkAccess: true
+        allowGatewayTransit: false
+        useRemoteGateways: false
+        remoteVirtualNetwork: {
+            id: spokeAvnet.id
+        }
+    }
+}
+
+resource spokeAToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2026-03-01' = {
+    name: 'peer-vnet-spoke-a-nus-vnet-connectivity-nus'
+    parent: spokeAvnet
+    properties: {
+        allowForwardedTraffic: true
+        allowVirtualNetworkAccess: true
+        allowGatewayTransit: false
+        useRemoteGateways: false
+        remoteVirtualNetwork: {
+            id: connectivityNetwork.id
+        }
+    }
+}
+
+
+resource spokeAvnet 'Microsoft.Network/virtualNetworks@2026-03-01' = {
+    name: 'spoke-a-nus-vnet'
+    location: resourceGroup().location
+    properties: {
+        addressSpace: {
+            addressPrefixes: [
+                '10.1.0.0/21'
+            ]
+        }
+    }
+}
+
+
+resource spokeAsnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-01' = {
+    name: 'spoke-a-nus-snet'
+    parent: spokeAvnet
+    properties: {
+        addressPrefix: '10.1.1.0/24'
+        routeTable: {
+            id: routeTabletoFW.id
+        }
+        privateEndpointNetworkPolicies: 'Disabled'
+        privateLinkServiceNetworkPolicies: 'Disabled'
+        defaultOutboundAccess: false
+    }
+}
+
+
+// ================================================
+// Spoke B Configuration
+// ================================================
+
+resource peerToSpokeB 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2026-03-01' = {
+    name: 'peer-connectivity-nus-vnet-spoke-b-nus-vnet'
+    parent: connectivityNetwork
+    properties: {
+        allowForwardedTraffic: true
+        allowVirtualNetworkAccess: true
+        allowGatewayTransit: false
+        useRemoteGateways: false
+        remoteVirtualNetwork: {
+            id: spokeBvnet.id
+        }
+    }
+}
+
+resource spokeBToHub 'Microsoft.Network/virtualNetworks/virtualNetworkPeerings@2026-03-01' = {
+    name: 'peer-vnet-spoke-b-nus-vnet-connectivity-nus'
+    parent: spokeBvnet
+    properties: {
+        allowForwardedTraffic: true
+        allowVirtualNetworkAccess: true
+        allowGatewayTransit: false
+        useRemoteGateways: false
+        remoteVirtualNetwork: {
+            id: connectivityNetwork.id
+        }
+    }
+}
+
+
+resource spokeBvnet 'Microsoft.Network/virtualNetworks@2026-03-01' = {
+    name: 'spoke-b-nus-vnet'
+    location: resourceGroup().location
+    properties: {
+        addressSpace: {
+            addressPrefixes: [
+                '10.2.0.0/21'
+            ]
+        }
+    }
+}
+
+
+resource spokeBsnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-01' = {
+    name: 'spoke-b-nus-snet'
+    parent: spokeBvnet
+    properties: {
+        addressPrefix: '10.2.1.0/24'
+        routeTable: {
+            id: routeTabletoFW.id
+        }
+        privateEndpointNetworkPolicies: 'Disabled'
+        privateLinkServiceNetworkPolicies: 'Disabled'
+        defaultOutboundAccess: false
     }
 }
