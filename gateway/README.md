@@ -1,16 +1,27 @@
 # NB/SB Firewall Setup with PFSense Network Virtual Appliance
 
-## Resources
+## Architecture
 
-The following resources/assets will be deployed to created:
-- 1x Public IP Address
-- 1x Connectivity vnet w/ `/21` Address Range
-- 1x Resource Group
-- 1x Azure Route Server
-- 1x Spoke VNet w/ default routes specified by Azure Route Server
-- 1x Network Security Group attached to PFSense Virtual Machine NIC
-- 1x NIC
-- 1x Virtual Machine
+### Hub & Spoke
+
+**Hub -> Spoke Peering Configurations**
+```
+allowForwardedTraffic: true
+allowVirtualNetworkAccess: true
+allowGatewayTransit: true // Allow for Route Server Propagation to Spokes
+useRemoteGateways: false
+```
+
+**Hub <- Spoke Peering Configurations**
+```
+allowForwardedTraffic: true
+allowVirtualNetworkAccess: true
+allowGatewayTransit: false
+useRemoteGateways: true // Allow Routes from Route Server
+```
+Reference: https://learn.microsoft.com/en-us/azure/route-server/route-injection-in-spokes
+
+VNET Spoke Networks
 
 ## Pre-requisite Steps
 
@@ -27,6 +38,14 @@ az vm image accept-terms --plan pfsense-plus-public-tac-lite --offer pfsense-plu
 ```
 
 ## Setup
+**Prior to running the deploy script, take note of the ASN Number and static IP that will be assigned to Pfsense. These values will be utilized as parameters for setting up BGP Peering between Azure Route Server when configuring the Pfsense dashboard.**
+
+By default the deployment sets the following values:
+```
+IP Address: 10.0.1.10
+ASN: 65014
+```
+
 
 1. Run the `deploy.sh` script to apply the bicep configuration
 
@@ -40,6 +59,90 @@ az vm image accept-terms --plan pfsense-plus-public-tac-lite --offer pfsense-plu
     IP Address: 10.0.1.10
     Subnet Mask: 24
     Upstream Gateway: 10.0.1.1
+    ```
+
+3. Download FRR
+    
+    On the Pfsense dashboard navigate to `System > Package Manager` then search for the `frr` package and proceed with the installation.
+
+4. Configure BGP Peering
+
+    First add an `ALLOW-ALL` Route Maps for BGP.
+    
+    1. Services > FRR Global/Zebra, Route Maps
+        ```
+        Name: ALLOW-ALL
+        Description: Match any route
+        Action: Permit
+        Sequence: 100
+        ```
+    Then add as Master password string for FRR.
+    1. [Global Settings]
+        ```
+        Enable: Check
+        Master Password: <string>
+        ```
+
+    On the PFSense Page configure the 2 high availability neighbors provided by Azure Route Server to peer to. The following settings should be updated.
+
+    **BGP Configuration**
+    ```
+    Enable: Check
+    Local AS: <pfsense-AS-number>
+    Router ID: <ipv4-address>
+    Networks to Distribute:
+    - 0.0.0.0/0
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    ```
+
+    **Neighbor Configuration**
+
+    Per each Neighbor (ex: 10.0.2.4, 10.0.2.5) add the following configuration:
+    ```
+    Name/Address: <bgp-neighbor-ipv4-address>
+    Remote AS: <azure-route-server-as-number>
+    EBGP Multi-Hop: 5
+    Inbound Route Map: ALLOW-ALL
+    Outbound Route Map: ALLOW-ALL
+    ```
+5. Firewall Configuration
+
+    Create an alias called `AZURE_PRIVATE_NETWORKS` and add the following address ranges:
+    ```
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    ```
+
+    Add the firewall rule referencing the Alias. This will allow east-west traffic between the private spoke networks.
+    - Firewall -> Rules -> WAN -> Add
+    ```
+    Action: Pass
+    Interface: WAN
+    Address Family: IPv4
+    Protocol: Any
+    Source: Address or Alias & AZURE_PRIVATE_NETWORKS
+    Destination: Address or Alias & AZURE_PRIVATE_NETWORKS
+    ```
+
+6. BGP Validation
+
+    Validate the BGP Peering at Services -> FRR BGP -> Status. The peers should be communicating with each other.
+
+    ```
+    IPv4 Unicast Summary:
+    BGP router identifier 10.0.1.10, local AS number 65014 VRF default vrf-id 0
+    BGP table version 10
+    RIB entries 10, using 1280 bytes of memory
+    Peers 2, using 33 KiB of memory
+
+    Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+    10.0.2.4        4      65515       107        96       10    0    0 01:31:36            3        7 N/A
+    10.0.2.5        4      65515       108        97       10    0    0 01:31:26            3        7 N/A
+
+    Total number of neighbors 2
     ```
 
 ### Configuring WireGuard Access for PFSense

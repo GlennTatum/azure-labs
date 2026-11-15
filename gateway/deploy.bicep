@@ -1,6 +1,7 @@
 targetScope = 'resourceGroup'
 
 param login string = 'pfsenseadmin'
+param pfsenseASN int = 65014
 
 @secure()
 param password string
@@ -42,8 +43,29 @@ resource connectivitySubnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-0
         networkSecurityGroup: {
             id: gwnsg.id
         }
+        routeTable: {
+            id: gwToInternet.id
+        }
     }
 }
+
+// https://github.com/MicrosoftDocs/azure-docs/blob/main/articles/route-server/troubleshoot-route-server.md
+resource gwToInternet 'Microsoft.Network/routeTables@2026-03-01' = {
+    name: 'gw-to-internet'
+    location: resourceGroup().location
+    properties: {
+        routes: [
+            {
+                name: 'toInternet'
+                properties: {
+                    addressPrefix: '0.0.0.0/0'
+                    nextHopType: 'Internet'
+                }
+            }
+        ]
+    }
+}
+
 
 // ================================================
 // BEGIN Static User Defined Routes (Alternative Option)
@@ -111,17 +133,17 @@ resource connectivityRouteServerIpConfig 'Microsoft.Network/virtualHubs/ipConfig
     }
 }
 
-// resource connectivityRouteServerBGPPeering 'Microsoft.Network/virtualHubs/bgpConnections@2026-03-01' = {
-//     name: 'routeserver-nva-nus-bgpconnection'
-//     parent: connectivityRouteServer
-//     properties: {
-//         peerAsn: // pfsense ASN
-//         peerIp: gwNic.properties.ipConfigurations[0].properties.privateIPAddress
-//     }
-//     dependsOn: [
-//         connectivityRouteServerIpConfig
-//     ]
-// }
+resource connectivityRouteServerBGPPeering 'Microsoft.Network/virtualHubs/bgpConnections@2026-03-01' = {
+    name: 'routeserver-nva-nus-bgpconnection'
+    parent: connectivityRouteServer
+    properties: {
+        peerAsn: pfsenseASN
+        peerIp: gwNic.properties.ipConfigurations[0].properties.privateIPAddress
+    }
+    dependsOn: [
+        connectivityRouteServerIpConfig
+    ]
+}
 
 // ================================================
 // END Azure Route Server Configuration
@@ -215,7 +237,6 @@ resource gwNic 'Microsoft.Network/networkInterfaces@2026-03-01' = {
     }
 }
 
-
 resource pfsenseVirtualAppliance 'Microsoft.Compute/virtualMachines@2026-04-01' = {
     name: 'connectivity-nus-nbsb-fw-1-vm'
     location: resourceGroup().location
@@ -261,25 +282,6 @@ resource pfsenseVirtualAppliance 'Microsoft.Compute/virtualMachines@2026-04-01' 
             disablePasswordAuthentication: false
         }
         }
-    }
-}
-
-resource routeTabletoFW 'Microsoft.Network/routeTables@2026-03-01' = {
-    name: 'connectivity-fw-nus-rt'
-    location: resourceGroup().location
-    properties: {
-        routes: [
-            {
-                name: 'r-to-fw'
-                properties: {
-                    nextHopType: 'VirtualAppliance'
-                    // Azure Networks will match against the longest prefix match algorithm,
-                    // if the destination address is not within the VNET traffic will jump to the 0.0.0.0/0 route
-                    addressPrefix: '0.0.0.0/0'
-                    nextHopIpAddress: gwNic.properties.ipConfigurations[0].properties.privateIPAddress
-                }
-            }
-        ]
     }
 }
 
@@ -347,9 +349,6 @@ resource spokeAsnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-01' = {
     parent: spokeAvnet
     properties: {
         addressPrefix: '10.1.1.0/24'
-        routeTable: {
-            id: routeTabletoFW.id
-        }
         privateEndpointNetworkPolicies: 'Disabled'
         privateLinkServiceNetworkPolicies: 'Disabled'
         defaultOutboundAccess: false
@@ -417,9 +416,6 @@ resource spokeBsnet 'Microsoft.Network/virtualNetworks/subnets@2026-03-01' = {
     parent: spokeBvnet
     properties: {
         addressPrefix: '10.2.1.0/24'
-        routeTable: {
-            id: routeTabletoFW.id
-        }
         privateEndpointNetworkPolicies: 'Disabled'
         privateLinkServiceNetworkPolicies: 'Disabled'
         defaultOutboundAccess: false
