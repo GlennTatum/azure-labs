@@ -1,4 +1,4 @@
-# NB/SB Firewall Setup with Pfsense Network Virtual Appliance
+# East-West Routing Setup with Pfsense Network Virtual Appliance and BGP
 
 ## Architecture
 
@@ -167,8 +167,6 @@ Host B
 ping <host-a-ipv4>
 ```
 
-### Configuring WireGuard Access for PFSense
-
 ## Additional Information
 
 Query the PFSense NVA Image
@@ -183,4 +181,5 @@ az vm image list \
 ## Citations
 
 BGP Advertising: https://www.dasblinkenlichten.com/bgp-route-advertisements/
+
 VNET's in Azure: https://blog.cloudtrooper.net/2023/02/06/virtual-network-gateways-routing-in-azure/
