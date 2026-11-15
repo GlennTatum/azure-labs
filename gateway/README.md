@@ -1,6 +1,16 @@
-# NB/SB Firewall Setup with PFSense Network Virtual Appliance
+# NB/SB Firewall Setup with Pfsense Network Virtual Appliance
 
 ## Architecture
+
+### Pfsense as a BGP Peer
+
+In this demonstration, we will utilize Route Maps to allow Pfsense as a BGP Peer to advertise a set of RFC1918 Private IP Address ranges to Azure Route Server. Once the Route Map is in place, Pfsense will then be configured to distribute our desired network address ranges defined in `Networks to Distribute`.
+
+> **Route maps** can control, for example, whether specific routes are accepted from neighbors, or whether specific routes are **distributed to neighbors**. [Pfsense](https://docs.netgate.com/pfsense/en/latest/packages/frr/global/routemaps.html#dynamic-routing-route-maps)
+
+*we will only be using a basic catch all definition for our Route Map, allowing for any of our definitions to be advertised.*
+
+Once the routes are distributed to the configured neighbors (Azure Route Server) since `allowGatewayTransit` is enabled from Hub to Spoke network Peerings, Azure Route Server will be able to propogate the advertised routes from Pfsense and inject the routes into each VNET gateway and the subsequent VM effective routes. Note that also `useRemoteGateway` is enabled from Spoke to Hub peerings, which is required for Azure Route Server to be able to dynamically modify the route tables.
 
 ### Hub & Spoke
 
