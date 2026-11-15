@@ -2,6 +2,8 @@
 
 ## Architecture
 
+![registration](media/hub-spoke-demo.png)
+
 ### Pfsense as a BGP Peer
 
 In this demonstration, we will utilize Route Maps to allow Pfsense as a BGP Peer to advertise a set of RFC1918 Private IP Address ranges to Azure Route Server. Once the Route Map is in place, Pfsense will then be configured to distribute our desired network address ranges defined in `Networks to Distribute`.
@@ -39,7 +41,7 @@ VNET Spoke Networks
 
 2. Ensure that Microsoft.Compute is registered within your subscription to be able to provision virtual machines.
 
-![alt text](media/registration.png)
+![registration](media/registration.png)
 
 3. Accept the EULA for the `pfsense` image:
 
@@ -177,3 +179,8 @@ az vm image list \
   --all \
   --output table
 ```
+
+## Citations
+
+BGP Advertising: https://www.dasblinkenlichten.com/bgp-route-advertisements/
+VNET's in Azure: https://blog.cloudtrooper.net/2023/02/06/virtual-network-gateways-routing-in-azure/
