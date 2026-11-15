@@ -145,6 +145,16 @@ ASN: 65014
     Total number of neighbors 2
     ```
 
+### Spoke to Spoke Validation
+
+```
+Host A
+sudo tcpdump -ni any 'icmp and host <spoke-b-vm-ipv4>'
+
+Host B
+ping <host-a-ipv4>
+```
+
 ### Configuring WireGuard Access for PFSense
 
 ## Additional Information
